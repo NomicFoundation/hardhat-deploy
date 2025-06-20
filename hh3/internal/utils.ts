@@ -1,18 +1,82 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import * as fs from 'fs-extra';
+import fs from 'fs-extra';
 import * as path from 'path';
-import {Wallet} from '@ethersproject/wallet';
-import {getAddress, isAddress} from '@ethersproject/address';
-import {Interface, FunctionFragment, Fragment} from '@ethersproject/abi';
-import {Artifact, HardhatRuntimeEnvironment, Network} from 'hardhat/types';
-import {BigNumber} from '@ethersproject/bignumber';
-import {ABI, Export, ExtendedArtifact, MultiExport} from '../types';
-import {Artifacts} from 'hardhat/internal/artifacts';
+import { Artifact, ArtifactManager, BuildInfo, Abi } from 'hardhat/types/artifacts';
+import { HardhatRuntimeEnvironment } from 'hardhat/types/hre';
+import { ChainType, DefaultChainType, NetworkConnection } from 'hardhat/types/network';
+import { SolidityBuildInfoOutput } from 'hardhat/types/solidity';
 import murmur128 from 'murmur-128';
-import {Transaction} from '@ethersproject/transactions';
-import {store} from './globalStore';
-import {ERRORS} from 'hardhat/internal/core/errors-list';
-import {HardhatError} from 'hardhat/internal/core/errors';
+import { HardhatError } from "@nomicfoundation/hardhat-errors"
+import { readJsonFile } from "@nomicfoundation/hardhat-utils/fs"
+
+import { Export, ExtendedArtifact, MultiExport } from '../../types.js';
+import { getAddress, isAddress, Wallet } from 'ethers';
+import { Interface } from 'ethers';
+import { Fragment } from 'ethers';
+import { FunctionFragment } from 'ethers';
+import { NamedFragment } from 'ethers';
+import { Transaction } from 'ethers';
+import { HardhatConfig } from 'hardhat/types/config';
+
+interface BuildInfoAndOutput {
+  buildInfo: BuildInfo;
+  buildInfoOutput: SolidityBuildInfoOutput;
+}
+
+export function normalizePath(
+  config: HardhatConfig,
+  userPath: string | undefined,
+  defaultPath: string
+): string {
+  if (userPath === undefined) {
+    userPath = path.join(config.paths.root, defaultPath);
+  } else {
+    if (!path.isAbsolute(userPath)) {
+      userPath = path.normalize(path.join(config.paths.root, userPath));
+    }
+  }
+  return userPath;
+}
+
+export function normalizePathArray(config: HardhatConfig, paths: string[]): string[] {
+  const newArray: string[] = [];
+  for (const value of paths) {
+    if (value) {
+      newArray.push(normalizePath(config, value, value));
+    }
+  }
+  return newArray;
+}
+
+async function getBuildInfoAndOutput(
+  artifacts: ArtifactManager,
+  contract: string,
+): Promise<BuildInfoAndOutput | undefined> {
+  const buildInfoId = await artifacts.getBuildInfoId(contract);
+  if (buildInfoId === undefined) {
+    return undefined;
+  }
+
+  const buildInfoPath = await artifacts.getBuildInfoPath(buildInfoId);
+  if (buildInfoPath === undefined) {
+    return undefined;
+  }
+
+  const buildInfoOutputPath =
+    await artifacts.getBuildInfoOutputPath(buildInfoId);
+  if (buildInfoOutputPath === undefined) {
+    return undefined;
+  }
+
+  const buildInfo: BuildInfo = await readJsonFile(buildInfoPath);
+  const buildInfoOutput: SolidityBuildInfoOutput =
+    await readJsonFile(buildInfoOutputPath);
+
+  return {
+    buildInfo,
+    buildInfoOutput,
+  };
+}
 
 function getOldArtifactSync(
   name: string,
@@ -32,19 +96,19 @@ function getOldArtifactSync(
 
 export async function getArtifactFromFolders(
   name: string,
-  folderPaths: string[]
+  folderPaths: string[],
+  artifacts: ArtifactManager
 ): Promise<Artifact | ExtendedArtifact | undefined> {
   for (const onepath of folderPaths) {
-    const artifacts = new Artifacts(onepath);
-    let artifact = getOldArtifactSync(name, onepath);
+    let artifact: Artifact | ExtendedArtifact | undefined = getOldArtifactSync(name, onepath);
     if (!artifact) {
       try {
-        artifact = artifacts.readArtifactSync(name);
+        artifact = await artifacts.readArtifact(name);
       } catch (e) {
         const hardhatError = e as HardhatError;
         if (
           hardhatError.number &&
-          hardhatError.number == ERRORS.ARTIFACTS.MULTIPLE_FOUND.number
+          hardhatError.number === HardhatError.ERRORS.CORE.ARTIFACTS.MULTIPLE_FOUND.number
         ) {
           throw e;
         }
@@ -63,10 +127,10 @@ export async function getArtifactFromFolders(
 
 export async function getExtendedArtifactFromFolders(
   name: string,
-  folderPaths: string[]
+  folderPaths: string[],
+  artifacts: ArtifactManager
 ): Promise<ExtendedArtifact | undefined> {
   for (const folderPath of folderPaths) {
-    const artifacts = new Artifacts(folderPath);
     let artifact = getOldArtifactSync(name, folderPath);
     if (
       !artifact &&
@@ -82,13 +146,13 @@ export async function getExtendedArtifactFromFolders(
         contractName = fullyQualifiedName.split(':')[1];
       }
       // TODO try catch ? in case debug file is missing
-      const buildInfo = await artifacts.getBuildInfo(fullyQualifiedName);
-      if (buildInfo) {
-        const solcInput = JSON.stringify(buildInfo.input, null, '  ');
+      const buildInfo = await getBuildInfoAndOutput(artifacts, fullyQualifiedName);
+      if (buildInfo?.buildInfo !== undefined && buildInfo.buildInfoOutput !== undefined) {
+        const solcInput = JSON.stringify(buildInfo.buildInfo.input, null, '  ');
         const solcInputHash = Buffer.from(murmur128(solcInput)).toString('hex');
         artifact = {
           ...hardhatArtifact,
-          ...buildInfo.output.contracts[hardhatArtifact.sourceName][
+          ...buildInfo.buildInfoOutput.output.contracts?.[hardhatArtifact.sourceName][
             contractName
           ],
           solcInput,
@@ -464,8 +528,10 @@ function chainConfig(
   }
 }
 
-export function processNamedAccounts(
-  network: Network,
+export function processNamedAccounts<
+  ChainTypeT extends ChainType | string = DefaultChainType
+>(
+  network: NetworkConnection<ChainTypeT>,
   namedAccounts: {
     [name: string]:
       | string
@@ -542,34 +608,34 @@ export const traverse = function (
   return result;
 };
 
-export function getNetworkName(network: Network): string {
+export function getNetworkName<
+  ChainTypeT extends ChainType | string = DefaultChainType
+>(network: NetworkConnection<ChainTypeT>): string {
   if (process.env['HARDHAT_DEPLOY_FORK']) {
     return process.env['HARDHAT_DEPLOY_FORK'];
   }
-  if ('forking' in network.config && (network.config.forking as any)?.network) {
-    return (network.config.forking as any)?.network;
-  }
-  return network.name;
+  // todo: is this still needed?
+  // if ('forking' in network.config && (network.config.forking as any)?.network) {
+  //   return (network.config.forking as any)?.network;
+  // }
+  return network.networkName;
 }
 
-export function getDeployPaths(network: Network): string[] {
-  const networkName = getNetworkName(network);
-  if (networkName === network.name) {
-    return network.deploy || store.networks[networkName]?.deploy; // fallback to global store
-  } else {
-    return store.networks[networkName]?.deploy; // skip network.deploy
-  }
+export function getDeployPaths<
+  ChainTypeT extends ChainType | string = DefaultChainType
+>(network: NetworkConnection<ChainTypeT>): string[] {
+  return network.deploy;
 }
 
 export function filterABI(
-  abi: ABI,
+  abi: Abi,
   excludeSighashes: Set<string>,
 ): any[] {
-  return abi.filter(fragment => fragment.type !== 'function' || !excludeSighashes.has(Interface.getSighash(Fragment.from(fragment) as FunctionFragment)));
+  return abi.filter(fragment => fragment.type !== 'function' || !excludeSighashes.has((Fragment.from(fragment) as FunctionFragment).selector));
 }
 
 export function mergeABIs(
-  abis: any[][],
+  abis: Abi[],
   options: {check: boolean; skipSupportsInterface: boolean}
 ): any[] {
   if (abis.length === 0) {
@@ -591,17 +657,10 @@ export function mergeABIs(
           return v.name === fragment.name; // TODO fallback and receive hanlding
         }
 
-        if (
-          existingEthersFragment.type === 'constructor' ||
-          newEthersFragment.type === 'constructor'
-        ) {
-          return existingEthersFragment.name === newEthersFragment.name;
-        }
-
         if (newEthersFragment.type === 'function') {
           return (
-            Interface.getSighash(existingEthersFragment as FunctionFragment) ===
-            Interface.getSighash(newEthersFragment as FunctionFragment)
+            (existingEthersFragment as FunctionFragment).selector ===
+            (newEthersFragment as FunctionFragment).selector
           );
         } else if (newEthersFragment.type === 'event') {
           return existingEthersFragment.format() === newEthersFragment.format();
@@ -634,24 +693,29 @@ export function mergeABIs(
 
 // eslint-disable-next-line @typescript-eslint/explicit-module-boundary-types
 export function recode(decoded: any): Transaction {
-  return {
+  return Transaction.from({
     from: decoded.from,
-    gasPrice: decoded.gasPrice ? BigNumber.from(decoded.gasPrice) : undefined,
+    gasPrice: decoded.gasPrice ? BigInt(decoded.gasPrice) : null,
     maxFeePerGas: decoded.maxFeePerGas
-      ? BigNumber.from(decoded.maxFeePerGas)
-      : undefined,
+      ? BigInt(decoded.maxFeePerGas)
+      : null,
     maxPriorityFeePerGas: decoded.maxPriorityFeePerGas
-      ? BigNumber.from(decoded.maxPriorityFeePerGas)
-      : undefined,
-    gasLimit: BigNumber.from(decoded.gasLimit),
+      ? BigInt(decoded.maxPriorityFeePerGas)
+      : null,
+    gasLimit: BigInt(decoded.gasLimit),
     to: decoded.to,
-    value: BigNumber.from(decoded.value),
+    value: BigInt(decoded.value),
     nonce: decoded.nonce,
     data: decoded.data,
-    r: decoded.r,
-    s: decoded.s,
-    v: decoded.v,
+    signature: decoded.signature,
     // creates: tx.creates, // TODO test
     chainId: decoded.chainId,
-  };
+  })
+}
+
+export function bnReplacer(k: string, v: any): any {
+  if (typeof v === 'bigint') {
+    return v.toString();
+  }
+  return v;
 }

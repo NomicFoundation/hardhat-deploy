@@ -1,12 +1,11 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import 'hardhat/types/runtime';
 import 'hardhat/types/config';
-import {
+import type {
   Address,
   DeploymentsExtension,
   DeterministicDeploymentInfo,
-} from '../types';
-import {EthereumProvider} from 'hardhat/types';
+} from '../types.js';
+import { DeploymentsManager } from './internal/DeploymentsManager.js';
 
 declare module 'hardhat/types/config' {
   interface HardhatUserConfig {
@@ -57,12 +56,11 @@ declare module 'hardhat/types/config' {
     verify: {etherscan?: {apiKey?: string}};
   }
 
-  interface HardhatNetworkUserConfig {
+  interface EdrNetworkUserConfig {
     live?: boolean;
     saveDeployments?: boolean;
     tags?: string[];
     deploy?: string | string[];
-    companionNetworks?: {[name: string]: string};
     verify?: {etherscan?: {apiKey?: string; apiUrl?: string}};
     zksync?: boolean;
     autoImpersonate?: boolean;
@@ -73,7 +71,6 @@ declare module 'hardhat/types/config' {
     saveDeployments?: boolean;
     tags?: string[];
     deploy?: string | string[];
-    companionNetworks?: {[name: string]: string};
     verify?: {etherscan?: {apiKey?: string; apiUrl?: string}};
     zksync?: boolean;
     autoImpersonate?: boolean;
@@ -85,12 +82,11 @@ declare module 'hardhat/types/config' {
     imports?: string;
   }
 
-  interface HardhatNetworkConfig {
+  interface EdrNetworkConfig {
     live: boolean;
     saveDeployments: boolean;
     tags: string[];
     deploy?: string[];
-    companionNetworks: {[name: string]: string};
     verify?: {etherscan?: {apiKey?: string; apiUrl?: string}};
     zksync?: boolean;
     autoImpersonate?: boolean;
@@ -101,7 +97,6 @@ declare module 'hardhat/types/config' {
     saveDeployments: boolean;
     tags: string[];
     deploy?: string[];
-    companionNetworks: {[name: string]: string};
     verify?: {etherscan?: {apiKey?: string; apiUrl?: string}};
     zksync?: boolean;
     autoImpersonate?: boolean;
@@ -114,35 +109,23 @@ declare module 'hardhat/types/config' {
   }
 }
 
-declare module 'hardhat/types/runtime' {
-  interface HardhatRuntimeEnvironment {
+declare module 'hardhat/types/network' {
+  interface NetworkConnection<
+    ChainTypeT extends ChainType | string = DefaultChainType
+  > {
+    live: boolean;
+    saveDeployments: boolean;
+    tags: Record<string, boolean>;
+    deploy: string[];
+    verify?: {etherscan?: {apiKey?: string; apiUrl?: string}};
+    zksync?: boolean;
+    autoImpersonate?: boolean;
+    deploymentsManager: DeploymentsManager<ChainTypeT>;
     deployments: DeploymentsExtension;
     getNamedAccounts: () => Promise<{
       [name: string]: Address;
     }>;
     getUnnamedAccounts: () => Promise<string[]>;
     getChainId(): Promise<string>;
-    companionNetworks: {
-      [name: string]: {
-        deployments: DeploymentsExtension;
-        getNamedAccounts: () => Promise<{
-          [name: string]: Address;
-        }>;
-        getUnnamedAccounts: () => Promise<string[]>;
-        getChainId(): Promise<string>;
-        provider: EthereumProvider;
-      };
-    };
-  }
-
-  interface Network {
-    live: boolean;
-    saveDeployments: boolean;
-    tags: Record<string, boolean>;
-    deploy: string[];
-    companionNetworks: {[name: string]: string};
-    verify?: {etherscan?: {apiKey?: string; apiUrl?: string}};
-    zksync?: boolean;
-    autoImpersonate?: boolean;
   }
 }

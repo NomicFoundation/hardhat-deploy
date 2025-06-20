@@ -1,5 +1,4 @@
-import {BigNumber} from '@ethersproject/bignumber';
-import {bnReplacer} from './internal/utils';
+import { bnReplacer } from './utils.js';
 
 export class UnknownSignerError extends Error {
   constructor(
@@ -7,7 +6,7 @@ export class UnknownSignerError extends Error {
       from: string;
       to?: string;
       data?: string;
-      value?: string | BigNumber;
+      value?: string | bigint;
       contract?: {name: string; method: string; args: unknown[]};
     }
   ) {

@@ -1,18 +1,20 @@
 {
   "compilerOptions": {
-    "target": "ES2017",
-    "module": "commonjs",
-    "lib": ["es2020"],
+    "target": "es2022",
+    "module": "nodenext",
+    "moduleResolution": "node16",
+    "lib": ["ES2023"],
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,
     "outDir": "./dist",
     "strict": true,
-    "rootDirs": ["./src", "./test"],
+    "rootDirs": ["./hh3", "./test"],
     "esModuleInterop": true,
     "resolveJsonModule": true,
     "skipLibCheck": true
   },
-  "exclude": ["dist", "node_modules"],
-  "include": ["./test", "./src", "types.ts"]
+  "exclude": ["dist", "node_modules", "./src"],
+  "include": ["./hh3", "types.ts"]
+  // "include": ["./test", "./hh3", "types.ts",]
 }

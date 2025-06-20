@@ -1,22 +1,17 @@
-import {
-  TransactionReceipt,
-  TransactionRequest,
-  TransactionResponse,
-} from '@ethersproject/providers';
-import { ContractFactory, PayableOverrides, Signer, ethers } from 'ethers';
-import { Artifact } from 'hardhat/types';
+import { concat, ContractFactory, getAddress, Overrides, Signer, solidityPackedKeccak256 } from 'ethers';
+import { Artifact } from 'hardhat/types/artifacts';
 import * as zk from 'zksync-ethers';
-import { Address, Deployment, DeployOptions, ExtendedArtifact } from '../types';
-import { getAddress } from '@ethersproject/address';
-import { keccak256 as solidityKeccak256 } from '@ethersproject/solidity';
-import { hexConcat } from '@ethersproject/bytes';
+import { Address, Deployment, DeployOptions, ExtendedArtifact } from '../../types.js';
+import { TransactionRequest } from 'ethers';
+import { TransactionResponse } from 'ethers';
+import { TransactionReceipt } from 'ethers';
 
 export class DeploymentFactory {
-  private factory: ContractFactory;
+  private factory: ContractFactory | zk.ContractFactory;
   private artifact: Artifact | ExtendedArtifact;
   private isZkSync: boolean;
   private getArtifact: (name: string) => Promise<Artifact>;
-  private overrides: PayableOverrides;
+  private overrides: Overrides;
   private args: any[];
   constructor(
     getArtifact: (name: string) => Promise<Artifact>,
@@ -24,7 +19,7 @@ export class DeploymentFactory {
     args: any[],
     network: any,
     ethersSigner?: Signer | zk.Signer,
-    overrides: PayableOverrides = {}
+    overrides: Overrides = {}
   ) {
     this.overrides = overrides;
     this.getArtifact = getArtifact;
@@ -40,7 +35,7 @@ export class DeploymentFactory {
       this.factory = new ContractFactory(
         artifact.abi,
         artifact.bytecode,
-        ethersSigner
+        ethersSigner as Signer
       );
     }
     const numArguments = this.factory.interface.deploy.inputs.length;
@@ -110,12 +105,12 @@ export class DeploymentFactory {
       throw Error('unsigned tx data as bytes not supported');
     return getAddress(
       '0x' +
-      solidityKeccak256(
+      solidityPackedKeccak256(
         ['bytes'],
         [
           `0xff${create2DeployerAddress.slice(2)}${salt.slice(
             2
-          )}${solidityKeccak256(['bytes'], [deploymentTx.data]).slice(2)}`,
+          )}${solidityPackedKeccak256(['bytes'], [deploymentTx.data]).slice(2)}`,
         ]
       ).slice(-40)
     );
@@ -151,14 +146,14 @@ export class DeploymentFactory {
   }
 
   public async compareDeploymentTransaction(
-    transaction: TransactionResponse,
+    transaction: TransactionResponse | zk.types.TransactionResponse,
     deployment: Deployment
   ): Promise<boolean> {
     const newTransaction = await this.getDeployTransaction();
     const newData = newTransaction.data?.toString();
     if (this.isZkSync) {
-      const currentFlattened = hexConcat(deployment.factoryDeps || []);
-      const newFlattened = hexConcat(newTransaction.customData?.factoryDeps);
+      const currentFlattened = concat(deployment.factoryDeps || []);
+      const newFlattened = concat(newTransaction.customData?.factoryDeps);
 
       return transaction.data !== newData || currentFlattened != newFlattened;
     } else {
@@ -177,12 +172,12 @@ export class DeploymentFactory {
 
     if (this.isZkSync) {
       const deployedAddresses = zk.utils
-        .getDeployedContracts(receipt)
+        .getDeployedContracts(receipt as unknown as zk.types.TransactionReceipt)
         .map((info) => info.deployedAddress);
 
       return deployedAddresses[deployedAddresses.length - 1];
     }
 
-    return receipt.contractAddress;
+    return receipt.contractAddress!;
   }
 }

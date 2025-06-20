@@ -1,11 +1,10 @@
-import {Artifact} from 'hardhat/types';
-
-import {
+import type { Artifact } from 'hardhat/types/artifacts';
+import type {
   Deployment,
   FixtureFunc,
   DeploymentSubmission,
   ExtendedArtifact,
-} from '../../types';
+} from '../../types.js';
 
 export interface PartialExtension {
   readDotFile(name: string): Promise<string>;

@@ -13,7 +13,7 @@ import {
 } from 'hardhat/types';
 import {createProvider} from 'hardhat/internal/core/providers/construction'; // TODO harhdat argument types not from internal
 import {LazyInitializationProviderAdapter} from "hardhat/internal/core/providers/lazy-initialization";
-import {Deployment, ExtendedArtifact} from '../types';
+import {Deployment, ExtendedArtifact} from '../types.js';
 import {extendEnvironment, task, subtask, extendConfig} from 'hardhat/config';
 import {HARDHAT_NETWORK_NAME, HardhatPluginError} from 'hardhat/plugins';
 import * as types from 'hardhat/internal/core/params/argumentTypes'; // TODO harhdat argument types not from internal
@@ -28,13 +28,13 @@ import {lazyObject} from 'hardhat/plugins';
 import debug from 'debug';
 const log = debug('hardhat:wighawag:hardhat-deploy');
 
-import {DeploymentsManager} from './DeploymentsManager';
+import {DeploymentsManager} from './DeploymentsManager.js';
 import chokidar from 'chokidar';
-import {submitSources} from './etherscan';
-import {submitSourcesToSourcify} from './sourcify';
+import {submitSources} from './etherscan.js';
+import {submitSourcesToSourcify} from './sourcify.js';
 import {Network} from 'hardhat/types/runtime';
-import {store} from './globalStore';
-import {getDeployPaths, getNetworkName} from './utils';
+import {store} from './globalStore.js';
+import {getDeployPaths, getNetworkName} from './utils.js';
 
 export {getNetworkName};
 
@@ -53,16 +53,6 @@ function isHardhatEVM(hre: HardhatRuntimeEnvironment): boolean {
   return network.name === HARDHAT_NETWORK_NAME;
 }
 
-function normalizePathArray(config: HardhatConfig, paths: string[]): string[] {
-  const newArray: string[] = [];
-  for (const value of paths) {
-    if (value) {
-      newArray.push(normalizePath(config, value, value));
-    }
-  }
-  return newArray;
-}
-
 function normalizePath(
   config: HardhatConfig,
   userPath: string | undefined,
@@ -77,98 +67,6 @@ function normalizePath(
   }
   return userPath;
 }
-
-extendConfig(
-  (config: HardhatConfig, userConfig: Readonly<HardhatUserConfig>) => {
-    config.paths.deployments = normalizePath(
-      config,
-      userConfig.paths?.deployments,
-      'deployments'
-    );
-
-    config.paths.imports = normalizePath(
-      config,
-      userConfig.paths?.imports,
-      'imports'
-    );
-
-    if (userConfig.paths?.deploy) {
-      let deployPaths = [];
-      if (typeof userConfig.paths.deploy === 'string') {
-        deployPaths = [userConfig.paths.deploy];
-      } else {
-        deployPaths = userConfig.paths.deploy;
-      }
-      config.paths.deploy = deployPaths.map((p) =>
-        normalizePath(config, p, 'deploy')
-      );
-    } else {
-      config.paths.deploy = [normalizePath(config, undefined, 'deploy')];
-    }
-
-    if (userConfig.namedAccounts) {
-      config.namedAccounts = userConfig.namedAccounts;
-    } else {
-      config.namedAccounts = {};
-    }
-
-    config.deterministicDeployment = userConfig.deterministicDeployment;
-
-    if (userConfig.external) {
-      if (!config.external) {
-        config.external = {};
-      }
-      if (userConfig.external.contracts) {
-        const externalContracts: {artifacts: string[]; deploy?: string}[] = [];
-        config.external.contracts = externalContracts;
-        for (const userDefinedExternalContracts of userConfig.external
-          .contracts) {
-          const userArtifacts =
-            typeof userDefinedExternalContracts.artifacts === 'string'
-              ? [userDefinedExternalContracts.artifacts]
-              : userDefinedExternalContracts.artifacts;
-          externalContracts.push({
-            artifacts: userArtifacts.map((v) => normalizePath(config, v, v)),
-            deploy: userDefinedExternalContracts.deploy
-              ? normalizePath(
-                  config,
-                  userDefinedExternalContracts.deploy,
-                  userDefinedExternalContracts.deploy
-                )
-              : undefined,
-          });
-        }
-      }
-      if (userConfig.external.deployments) {
-        config.external.deployments = {};
-        for (const key of Object.keys(userConfig.external.deployments)) {
-          config.external.deployments[key] = normalizePathArray(
-            config,
-            userConfig.external.deployments[key]
-          );
-        }
-      }
-    }
-
-    for (const compiler of config.solidity.compilers) {
-      setupExtraSolcSettings(compiler.settings);
-    }
-
-    const defaultConfig = {};
-    if (userConfig.verify !== undefined) {
-      const customConfig = userConfig.verify;
-      config.verify = {...defaultConfig, ...customConfig};
-    } else {
-      config.verify = defaultConfig;
-      // backward compatibility for runtime (js)
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      if ((userConfig as any).etherscan) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        config.verify.etherscan = (userConfig as any).etherscan;
-      }
-    }
-  }
-);
 
 function createNetworkFromConfig(
   env: HardhatRuntimeEnvironment,
@@ -195,84 +93,9 @@ function createNetworkFromConfig(
   return network as Network;
 }
 
-function networkFromConfig(
-  env: HardhatRuntimeEnvironment,
-  network: Network,
-  companion: boolean
-) {
-  let live = true;
-  const networkName = network.name; // cannot use fork here as this could be set via task, T
-  if (networkName === 'localhost' || networkName === 'hardhat') {
-    // the 2 default network are not live network
-    live = false;
-  }
-  if (network.config.live !== undefined) {
-    live = network.config.live;
-  }
-
-  if (network.config.verify !== undefined) {
-    network.verify = network.config.verify;
-  } else {
-    // backward compatibility for runtime (js)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    if ((network.config as any).etherscan) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      network.verify = {etherscan: (network.config as any).etherscan};
-    }
-  }
-
-  if (network.config.zksync !== undefined) {
-    network.zksync = network.config.zksync;
-  }
-
-  // associate tags to current network as object
-  network.tags = {};
-  const tags = network.config.tags || [];
-  for (const tag of tags) {
-    network.tags[tag] = true;
-  }
-
-  if (network.config.deploy) {
-    network.deploy = network.config.deploy;
-  } else {
-    network.deploy = env.config.paths.deploy;
-  }
-
-  if (companion && network.config.companionNetworks) {
-    network.companionNetworks = network.config.companionNetworks;
-  } else {
-    network.companionNetworks = {};
-  }
-
-  if (network.config.live !== undefined) {
-    live = network.config.live;
-  }
-
-  network.live = live;
-
-  if (network.config.saveDeployments === undefined) {
-    network.saveDeployments = true;
-  } else {
-    network.saveDeployments = network.config.saveDeployments;
-  }
-
-  let autoImpersonate = false;
-
-  if (networkName === 'hardhat') {
-    autoImpersonate = true;
-  }
-
-  if (network.config.autoImpersonate !== undefined) {
-    autoImpersonate = network.config.autoImpersonate;
-  }
-
-  network.autoImpersonate = autoImpersonate;
-}
-
 log('start...');
 let deploymentsManager: DeploymentsManager;
 extendEnvironment((env) => {
-  networkFromConfig(env, env.network, true);
   if (deploymentsManager === undefined || env.deployments === undefined) {
     deploymentsManager = new DeploymentsManager(
       env,
@@ -303,53 +126,6 @@ extendEnvironment((env) => {
   log('ready');
 });
 
-function addIfNotPresent(array: string[], value: string) {
-  if (array.indexOf(value) === -1) {
-    array.push(value);
-  }
-}
-
-function setupExtraSolcSettings(settings: {
-  metadata: {useLiteralContent: boolean};
-  outputSelection: {'*': {'': string[]; '*': string[]}};
-}): void {
-  settings.metadata = settings.metadata || {};
-  settings.metadata.useLiteralContent = true;
-
-  if (settings.outputSelection === undefined) {
-    settings.outputSelection = {
-      '*': {
-        '*': [],
-        '': [],
-      },
-    };
-  }
-  if (settings.outputSelection['*'] === undefined) {
-    settings.outputSelection['*'] = {
-      '*': [],
-      '': [],
-    };
-  }
-  if (settings.outputSelection['*']['*'] === undefined) {
-    settings.outputSelection['*']['*'] = [];
-  }
-  if (settings.outputSelection['*'][''] === undefined) {
-    settings.outputSelection['*'][''] = [];
-  }
-
-  addIfNotPresent(settings.outputSelection['*']['*'], 'abi');
-  addIfNotPresent(settings.outputSelection['*']['*'], 'evm.bytecode');
-  addIfNotPresent(settings.outputSelection['*']['*'], 'evm.deployedBytecode');
-  addIfNotPresent(settings.outputSelection['*']['*'], 'metadata');
-  addIfNotPresent(settings.outputSelection['*']['*'], 'devdoc');
-  addIfNotPresent(settings.outputSelection['*']['*'], 'userdoc');
-  addIfNotPresent(settings.outputSelection['*']['*'], 'storageLayout');
-  addIfNotPresent(settings.outputSelection['*']['*'], 'evm.methodIdentifiers');
-  addIfNotPresent(settings.outputSelection['*']['*'], 'evm.gasEstimates');
-  // addIfNotPresent(settings.outputSelection["*"][""], "ir");
-  // addIfNotPresent(settings.outputSelection["*"][""], "irOptimized");
-  // addIfNotPresent(settings.outputSelection["*"][""], "ast");
-}
 
 function initCompanionNetworks(hre: HardhatRuntimeEnvironment) {
   hre.companionNetworks = {};
@@ -624,50 +400,6 @@ task(TASK_TEST, 'Runs mocha tests')
   });
 
 task(TASK_DEPLOY, 'Deploy contracts')
-  .addOptionalParam('export', 'export current network deployments')
-  .addOptionalParam('exportAll', 'export all deployments into one file')
-  .addOptionalParam(
-    'tags',
-    'specify which deploy script to execute via tags, separated by commas',
-    undefined,
-    types.string
-  )
-  .addFlag(
-    'tagsRequireAll',
-    'execute only deploy scripts containing all the tags specified'
-  )
-  .addOptionalParam(
-    'write',
-    'whether to write deployments to file',
-    undefined,
-    types.boolean
-  )
-  // TODO pendingtx
-  .addOptionalParam(
-    'gasprice',
-    'gas price to use for transactions',
-    undefined,
-    types.string
-  )
-  .addOptionalParam('maxfee', 'max fee per gas', undefined, types.string)
-  .addOptionalParam(
-    'priorityfee',
-    'max priority fee per gas',
-    undefined,
-    types.string
-  )
-  .addOptionalParam(
-    'deployScripts',
-    'override deploy script folder path',
-    undefined,
-    types.string
-  )
-  .addFlag('noImpersonation', 'do not impersonate unknown accounts')
-  .addFlag('noCompile', 'disable pre compilation')
-  .addFlag('reset', 'whether to delete deployments files first')
-  .addFlag('silent', 'whether to remove log')
-  .addFlag('watch', 'redeploy on every change of contract or deploy script')
-  .addFlag('reportGas', 'report gas use')
   .setAction(async (args, hre) => {
     if (args.noImpersonation) {
       deploymentsManager.disableAutomaticImpersonation();

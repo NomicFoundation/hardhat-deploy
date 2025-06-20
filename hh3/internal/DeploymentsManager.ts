@@ -1,23 +1,22 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import {
+import type {
   DeployFunction,
   Deployment,
   DeploymentsExtension,
+  ExtendedArtifact,
   FixtureFunc,
   DeploymentSubmission,
   Export,
   DeterministicDeploymentInfo,
-} from '../types';
-import {ExtendedArtifact} from '../types';
-import {PartialExtension} from './internal/types';
-
-import fs from 'fs-extra';
-import path from 'path';
-
-import {BigNumber} from '@ethersproject/bignumber';
+} from '../../types.js';
+import type { PartialExtension } from './types.js';
 
 import debug from 'debug';
-const log = debug('hardhat:wighawag:hardhat-deploy');
+import fs from 'fs-extra';
+import path from 'path';
+import { Abi, Artifact } from 'hardhat/types/artifacts';
+import { ChainType, DefaultChainType, NetworkConnection } from 'hardhat/types/network';
+import { HardhatRuntimeEnvironment } from 'hardhat/types/hre';
 
 import {
   addDeployments,
@@ -29,18 +28,21 @@ import {
   getArtifactFromFolders,
   getNetworkName,
   getDeployPaths,
-} from './utils';
-import {addHelpers, waitForTx} from './helpers';
-import {TransactionResponse} from '@ethersproject/providers';
-import {Artifact, HardhatRuntimeEnvironment, Network} from 'hardhat/types';
-import {store} from './globalStore';
-import {bnReplacer} from './internal/utils';
+} from './utils.js';
+import { addHelpers, waitForTx } from './helpers.js';
+import { bnReplacer } from './utils.js';
+import { isObject } from '@nomicfoundation/hardhat-utils/lang';
+import { TransactionResponse } from 'ethers';
+import { Transaction } from 'ethers';
+import { createRequire } from 'module';
 
-export class DeploymentsManager {
+const log = debug('hardhat:wighawag:hardhat-deploy');
+
+export class DeploymentsManager<ChainTypeT extends ChainType | string = DefaultChainType> {
   public deploymentsExtension: DeploymentsExtension;
 
   private db: {
-    gasUsed: BigNumber;
+    gasUsed: bigint;
     accountsLoaded: boolean;
     namedAccounts: {[name: string]: string};
     unnamedAccounts: string[];
@@ -76,7 +78,7 @@ export class DeploymentsManager {
   public impersonatedAccounts: string[];
   public addressesToProtocol: {[address: string]: string} = {};
 
-  private network: Network;
+  private network: NetworkConnection<ChainTypeT>;
 
   private partialExtension: PartialExtension;
 
@@ -110,7 +112,7 @@ export class DeploymentsManager {
     ) => Promise<void>;
   };
 
-  constructor(env: HardhatRuntimeEnvironment, network: Network) {
+  constructor(env: HardhatRuntimeEnvironment, network: NetworkConnection<ChainTypeT>) {
     log('constructing DeploymentsManager');
 
     this.network = network;
@@ -118,7 +120,7 @@ export class DeploymentsManager {
     this.impersonateUnknownAccounts = true;
     this.impersonatedAccounts = [];
     this.db = {
-      gasUsed: BigNumber.from(0),
+      gasUsed: 0n,
       accountsLoaded: false,
       namedAccounts: {},
       unnamedAccounts: [],
@@ -185,7 +187,8 @@ export class DeploymentsManager {
         if (this.db.onlyArtifacts) {
           const artifactFromFolder = await getArtifactFromFolders(
             contractName,
-            this.db.onlyArtifacts
+            this.db.onlyArtifacts,
+            this.env.artifacts
           );
           if (!artifactFromFolder) {
             throw new Error(
@@ -197,12 +200,12 @@ export class DeploymentsManager {
         let artifact: Artifact | ExtendedArtifact | undefined =
           await getArtifactFromFolders(contractName, [
             this.env.config.paths.artifacts,
-          ]);
+          ], this.env.artifacts);
         if (artifact) {
           return artifact as Artifact;
         }
         const importPaths = this.getImportPaths();
-        artifact = await getArtifactFromFolders(contractName, importPaths);
+        artifact = await getArtifactFromFolders(contractName, importPaths, this.env.artifacts);
 
         if (!artifact) {
           throw new Error(`cannot find artifact "${contractName}"`);
@@ -215,7 +218,8 @@ export class DeploymentsManager {
         if (this.db.onlyArtifacts) {
           const artifactFromFolder = await getExtendedArtifactFromFolders(
             contractName,
-            this.db.onlyArtifacts
+            this.db.onlyArtifacts,
+            this.env.artifacts
           );
           if (!artifactFromFolder) {
             throw new Error(
@@ -227,14 +231,15 @@ export class DeploymentsManager {
         let artifact: ExtendedArtifact | undefined =
           await getExtendedArtifactFromFolders(contractName, [
             this.env.config.paths.artifacts,
-          ]);
+          ], this.env.artifacts);
         if (artifact) {
           return artifact;
         }
         const importPaths = this.getImportPaths();
         artifact = await getExtendedArtifactFromFolders(
           contractName,
-          importPaths
+          importPaths,
+          this.env.artifacts
         );
         if (artifact) {
           return artifact;
@@ -349,7 +354,7 @@ export class DeploymentsManager {
         }
       },
       getNetworkName: () => this.getNetworkName(),
-      getGasUsed: () => this.db.gasUsed.toNumber(),
+      getGasUsed: () => parseInt(this.db.gasUsed.toString()),
     } as PartialExtension;
 
     const print = (msg: string) => {
@@ -390,17 +395,17 @@ export class DeploymentsManager {
       this.onPendingTx.bind(this),
       async () => {
         // TODO extraGasPrice ?
-        let gasPrice: BigNumber | undefined;
-        let maxFeePerGas: BigNumber | undefined;
-        let maxPriorityFeePerGas: BigNumber | undefined;
+        let gasPrice: bigint | undefined;
+        let maxFeePerGas: bigint | undefined;
+        let maxPriorityFeePerGas: bigint | undefined;
         if (this.db.gasPrice) {
-          gasPrice = BigNumber.from(this.db.gasPrice);
+          gasPrice = BigInt(this.db.gasPrice);
         } else {
           if (this.db.maxFeePerGas) {
-            maxFeePerGas = BigNumber.from(this.db.maxFeePerGas);
+            maxFeePerGas = BigInt(this.db.maxFeePerGas);
           }
           if (this.db.maxPriorityFeePerGas) {
-            maxPriorityFeePerGas = BigNumber.from(this.db.maxPriorityFeePerGas);
+            maxPriorityFeePerGas = BigInt(this.db.maxPriorityFeePerGas);
           }
         }
         return {gasPrice, maxFeePerGas, maxPriorityFeePerGas};
@@ -419,15 +424,15 @@ export class DeploymentsManager {
       return;
     }
     // reassign network variables based on fork name if any;
-    const networkName = this.getNetworkName();
-    if (networkName !== this.network.name) {
-      const networkObject = store.networks[networkName];
-      if (networkObject) {
-        this.env.network.live = networkObject.live;
-        this.env.network.tags = networkObject.tags;
-        this.env.network.deploy = networkObject.deploy;
-      }
-    }
+    // const networkName = this.getNetworkName();
+    // if (networkName !== this.network.name) {
+    //   const networkObject = store.networks[networkName];
+    //   if (networkObject) {
+    //     this.env.network.live = networkObject.live;
+    //     this.env.network.tags = networkObject.tags;
+    //     this.env.network.deploy = networkObject.deploy;
+    //   }
+    // }
     this.networkWasSetup = true;
   }
 
@@ -438,10 +443,14 @@ export class DeploymentsManager {
     }
     this.setupNetwork();
     try {
-      this._chainId = await this.network.provider.send('eth_chainId');
+      this._chainId = await this.network.provider.request({
+        method: 'eth_chainId',
+      }) as string | undefined;
     } catch (e) {
       console.log('failed to get chainId, falling back on net_version...');
-      this._chainId = await this.network.provider.send('net_version');
+      this._chainId = await this.network.provider.request({
+        method: 'net_version'
+      }) as string | undefined;
     }
 
     if (!this._chainId) {
@@ -449,7 +458,7 @@ export class DeploymentsManager {
     }
 
     if (this._chainId.startsWith('0x')) {
-      this._chainId = BigNumber.from(this._chainId).toString();
+      this._chainId = BigInt(this._chainId).toString();
     }
 
     return this._chainId;
@@ -517,8 +526,8 @@ export class DeploymentsManager {
       // console.log("tx", tx.hash);
       const pendingTxPath = path.join(deployFolderPath, '.pendingTransactions');
       fs.ensureDirSync(deployFolderPath);
-      const rawTx = tx.raw;
-      const decoded = tx.raw
+      const rawTx = Transaction.from(tx).unsignedSerialized // should this be `serialized` ?
+      const decoded = rawTx
         ? undefined
         : {
             from: tx.from,
@@ -530,9 +539,9 @@ export class DeploymentsManager {
             value: tx.value.toString(),
             nonce: tx.nonce,
             data: tx.data,
-            r: tx.r,
-            s: tx.s,
-            v: tx.v,
+            r: tx.signature.r,
+            s: tx.signature.s,
+            v: tx.signature.v,
             // creates: tx.creates, // TODO test
             chainId: tx.chainId,
           };
@@ -557,14 +566,14 @@ export class DeploymentsManager {
             JSON.stringify(this.db.pendingTransactions, bnReplacer, '  ')
           );
         }
-        this.db.gasUsed = this.db.gasUsed.add(receipt.gasUsed);
+        this.db.gasUsed = this.db.gasUsed + (receipt?.gasUsed ?? 0n);;
         return receipt;
       };
     } else {
       const wait = tx.wait.bind(tx);
       tx.wait = async (confirmations?: number) => {
         const receipt = await wait(confirmations);
-        this.db.gasUsed = this.db.gasUsed.add(receipt.gasUsed);
+        this.db.gasUsed = this.db.gasUsed + (receipt?.gasUsed ?? 0n);
         return receipt;
       };
     }
@@ -599,9 +608,9 @@ export class DeploymentsManager {
     return info?.deployer || '0x3fab184622dc19b6109349b94811493bf2a45362';
   }
 
-  public async getDeterministicDeploymentFactoryFunding(): Promise<BigNumber> {
+  public async getDeterministicDeploymentFactoryFunding(): Promise<bigint> {
     const info = await this.getDeterminisityDeploymentInfo();
-    return BigNumber.from(info?.funding || '10000000000000000');
+    return BigInt(info?.funding || '10000000000000000');
   }
 
   public async getDeterministicDeploymentFactoryDeploymentTx(): Promise<string> {
@@ -644,7 +653,7 @@ export class DeploymentsManager {
       this.db,
       this.deploymentsPath,
       this.deploymentFolder(),
-      networkName === this.network.name ? chainId : undefined // fork mode, we do not care about chainId ?
+      networkName === this.network.networkName ? chainId : undefined // fork mode, we do not care about chainId ?
     );
 
     const extraDeploymentPaths =
@@ -804,7 +813,7 @@ export class DeploymentsManager {
           contractAddress: receipt.contractAddress,
           transactionIndex: receipt.transactionIndex,
           gasUsed:
-            receipt.gasUsed && (receipt.gasUsed as BigNumber)._isBigNumber
+            receipt.gasUsed && typeof receipt.gasUsed === "bigint"
               ? receipt.gasUsed.toString()
               : receipt.gasUsed,
           logsBloom: receipt.logsBloom,
@@ -815,7 +824,7 @@ export class DeploymentsManager {
           blockNumber: receipt.blockNumber,
           cumulativeGasUsed:
             receipt.cumulativeGasUsed &&
-            (receipt.cumulativeGasUsed as BigNumber)._isBigNumber
+            typeof receipt.cumulativeGasUsed === "bigint"
               ? receipt.cumulativeGasUsed.toString()
               : receipt.cumulativeGasUsed,
           status: receipt.status,
@@ -1005,7 +1014,7 @@ export class DeploymentsManager {
     }
 
     await this.loadDeployments();
-    this.db.gasUsed = BigNumber.from(0);
+    this.db.gasUsed = 0n;
     this.db.writeDeploymentsToFiles = options.writeDeploymentsToFiles;
     this.db.savePendingTx = options.savePendingTx;
     this.db.logEnabled = options.log;
@@ -1078,6 +1087,9 @@ export class DeploymentsManager {
     try {
       filepaths = traverseMultipleDirectory(deployScriptsPaths);
     } catch (e) {
+      console.error(
+        `Error traversing deploy scripts paths: ${deployScriptsPaths.join(', ')}\n${e}`
+      );
       return;
     }
     filepaths = filepaths.sort((a: string, b: string) => {
@@ -1090,23 +1102,35 @@ export class DeploymentsManager {
       return 0;
     });
     log('deploy script folder parsed');
+    interface DeployObject {
+      func: (env: HardhatRuntimeEnvironment) => Promise<void | boolean>;
+      skip?: (env: HardhatRuntimeEnvironment) => Promise<boolean>;
+      tags?: string[];
+      dependencies?: string[];
+      runAtTheEnd?: boolean;
+      id?: string;
+    }
 
-    const funcByFilePath: {[filename: string]: DeployFunction} = {};
+    const funcByFilePath: {[filename: string]: DeployObject} = {};
     const scriptPathBags: {[tag: string]: string[]} = {};
     const scriptFilePaths: string[] = [];
     for (const filepath of filepaths) {
       const scriptFilePath = path.resolve(filepath);
       let deployFunc: DeployFunction;
+      let deployObj: DeployObject
       // console.log("fetching " + scriptFilePath);
       try {
-        delete require.cache[scriptFilePath]; // ensure we reload it every time, so changes are taken in consideration
-        deployFunc = require(scriptFilePath);
+        // delete require.cache[scriptFilePath]; // ensure we reload it every time, so changes are taken in consideration
+
+        deployFunc = await import(scriptFilePath);
+        const { tags, dependencies, skip, runAtTheEnd, id } = await import(scriptFilePath)
         if ((deployFunc as any).default) {
           deployFunc = (deployFunc as any).default as DeployFunction;
         }
-        funcByFilePath[scriptFilePath] = deployFunc;
+        deployObj = { func: deployFunc, tags, dependencies, skip, runAtTheEnd, id };
+        funcByFilePath[scriptFilePath] = deployObj;
       } catch (e) {
-        // console.error("require failed", e);
+        console.error("require failed", e);
         throw new Error(
           'ERROR processing skip func of ' +
             filepath +
@@ -1115,7 +1139,7 @@ export class DeploymentsManager {
         );
       }
       // console.log("get tags if any for " + scriptFilePath);
-      let scriptTags = deployFunc.tags || [];
+      let scriptTags = deployObj.tags || [];
       if (typeof scriptTags === 'string') {
         scriptTags = [scriptTags];
       }
@@ -1138,11 +1162,11 @@ export class DeploymentsManager {
     // console.log({ scriptFilePaths });
     const scriptsRegisteredToRun: {[filename: string]: boolean} = {};
     const scriptsToRun: Array<{
-      func: DeployFunction;
+      func: DeployObject;
       filePath: string;
     }> = [];
     const scriptsToRunAtTheEnd: Array<{
-      func: DeployFunction;
+      func: DeployObject;
       filePath: string;
     }> = [];
     function recurseDependencies(scriptFilePath: string) {
@@ -1209,7 +1233,7 @@ export class DeploymentsManager {
           log(`executing  ${deployScript.filePath}`);
           let result;
           try {
-            result = await deployScript.func(this.env);
+            result = await deployScript.func.func(this.env);
           } catch (e) {
             // console.error("execution failed", e);
             throw new Error(
@@ -1292,7 +1316,7 @@ export class DeploymentsManager {
       const currentNetworkDeployments: {
         [contractName: string]: {
           address: string;
-          abi: any[];
+          abi: Abi;
           linkedData?: any;
         };
       } = {};
@@ -1326,7 +1350,7 @@ export class DeploymentsManager {
       const currentNetworkDeployments: {
         [contractName: string]: {
           address: string;
-          abi: any[];
+          abi: Abi;
           linkedData?: any;
         };
       } = {};
@@ -1390,7 +1414,7 @@ export class DeploymentsManager {
       if (process.env.HARDHAT_DEPLOY_FIXTURE) {
         if (process.env.HARDHAT_COMPILE) {
           // console.log("compiling...");
-          await this.env.run('compile');
+          await this.env.tasks.getTask('compile').run();
         }
         this.db.deploymentsLoaded = true;
         // console.log("running global fixture....");
@@ -1400,7 +1424,7 @@ export class DeploymentsManager {
       } else {
         if (process.env.HARDHAT_COMPILE) {
           // console.log("compiling...");
-          await this.env.run('compile');
+          await this.env.tasks.getTask('compile').run();
         }
         await this.loadDeployments();
       }
@@ -1408,12 +1432,21 @@ export class DeploymentsManager {
   }
 
   private async saveSnapshot(key: string, data?: any) {
-    const latestBlock = await this.network.provider.send(
-      'eth_getBlockByNumber',
-      ['latest', false]
+    const latestBlock = await this.network.provider.request(
+      {
+        method: 'eth_getBlockByNumber',
+        params: ['latest', false]
+      }
     );
     try {
-      const snapshot = await this.network.provider.send('evm_snapshot', []);
+      const snapshot = await this.network.provider.request({
+        method: 'evm_snapshot'
+      });
+
+      if (!isObject(latestBlock) || !("hash" in latestBlock) || typeof latestBlock.hash !== 'string') {
+        throw new Error('Latest block is not an object or does not have a hash');
+      }
+
       this.db.pastFixtures[key] = {
         index: ++this.db.snapshotCounter,
         snapshot,
@@ -1439,22 +1472,25 @@ export class DeploymentsManager {
         delete this.db.pastFixtures[fixtureKey];
       }
     }
-    let success;
+    let success: boolean;
     try {
-      success = await this.network.provider.send('evm_revert', [
-        saved.snapshot,
-      ]);
+      success = await this.network.provider.request({
+        method: 'evm_revert',
+        params: [saved.snapshot]
+      }) as boolean;
     } catch {
       log(`failed to revert to snapshot`);
       success = false;
     }
     if (success) {
-      const blockRetrieved = await this.network.provider.send(
-        'eth_getBlockByHash',
-        [saved.blockHash, false]
-      );
+      const blockRetrieved = await this.network.provider.request({
+        method: 'eth_getBlockByHash',
+        params: [saved.blockHash, false]
+      });
       if (blockRetrieved) {
-        saved.snapshot = await this.network.provider.send('evm_snapshot', []); // it is necessary to re-snapshot it
+        saved.snapshot = await this.network.provider.request({
+          method: 'evm_snapshot'
+        }); // it is necessary to re-snapshot it
         this.db.deployments = {...saved.deployments};
       } else {
         // TODO or should we throw ?
@@ -1493,7 +1529,7 @@ export class DeploymentsManager {
 
     if (this.network.autoImpersonate) {
       for (const address of unknownAccounts) {
-        if (this.network.name === 'hardhat') {
+        if (this.network.networkName === 'hardhat') {
           await this.network.provider.request({
             method: 'hardhat_impersonateAccount',
             params: [address],
@@ -1510,7 +1546,9 @@ export class DeploymentsManager {
   }> {
     if (!this.db.accountsLoaded) {
       const chainId = await this.getChainId();
-      const accounts = await this.network.provider.send('eth_accounts');
+      const accounts = await this.network.provider.request({
+        method: 'eth_accounts',
+      }) as string[];
       const {
         namedAccounts,
         unnamedAccounts,

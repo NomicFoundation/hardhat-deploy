@@ -1,16 +1,11 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import 'hardhat/types/runtime';
 import 'hardhat/types/config';
-import {
-  LinkReferences,
-  Artifact,
-  HardhatRuntimeEnvironment,
-} from 'hardhat/types';
-import type {BigNumber} from '@ethersproject/bignumber';
-import {Signer} from '@ethersproject/abstract-signer';
+import type { LinkReferences, Artifact, Abi } from 'hardhat/types/artifacts';
+import type { HardhatRuntimeEnvironment } from 'hardhat/types/hre';
+import { Signer } from 'ethers';
 
 export type ExtendedArtifact = {
-  abi: any[];
+  abi: Abi;
   bytecode: string; // "0x"-prefixed hex string
   deployedBytecode?: string; // "0x"-prefixed hex string
   metadata?: string;
@@ -36,9 +31,6 @@ export interface DeployFunction {
 
 export type Address = string;
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type ABI = any[]; // TODO abi
-
 export type Log = {
   blockNumber: number;
   blockHash: string;
@@ -57,16 +49,16 @@ export type Receipt = {
   blockHash: string;
   blockNumber: number;
   transactionIndex: number;
-  cumulativeGasUsed: BigNumber | string | number;
-  gasUsed: BigNumber | string | number;
-  contractAddress?: string;
-  to?: Address;
-  logs?: Log[];
-  events?: any[];
-  logsBloom?: string;
-  byzantium?: boolean;
-  status?: number;
-  confirmations?: number;
+  cumulativeGasUsed: bigint | string | number;
+  gasUsed: bigint | string | number;
+  contractAddress?: string | null;
+  to?: Address | null;
+  logs?: Log[] | null;
+  events?: any[] | null;
+  logsBloom?: string | null;
+  byzantium?: boolean | null;
+  status?: number | null;
+  confirmations?: number | null;
 };
 
 export type FacetOptions = {
@@ -148,7 +140,7 @@ export type ProxyOptions =
     });
 
 export type ArtifactData = {
-  abi: ABI;
+  abi: Abi;
   bytecode: string;
   deployedBytecode?: string;
   metadata?: string;
@@ -178,12 +170,12 @@ export interface Create2DeployOptions extends DeployOptionsBase {
 
 export interface CallOptions {
   from?: string;
-  gasLimit?: string | number | BigNumber;
-  gasPrice?: string | BigNumber;
-  maxFeePerGas?: string | BigNumber;
-  maxPriorityFeePerGas?: string | BigNumber;
-  value?: string | BigNumber;
-  nonce?: string | number | BigNumber;
+  gasLimit?: string | number | bigint;
+  gasPrice?: string | bigint;
+  maxFeePerGas?: string | bigint;
+  maxPriorityFeePerGas?: string | bigint;
+  value?: string | bigint;
+  nonce?: string | number | bigint;
   to?: string; // TODO make to and data part of a `SimpleCallOptions` interface
   data?: string;
   customData?: Record<string, any>;
@@ -193,8 +185,8 @@ export interface TxOptions extends CallOptions {
   from: string;
   log?: boolean; // TODO string (for comment in log)
   autoMine?: boolean;
-  estimatedGasLimit?: string | number | BigNumber;
-  estimateGasExtra?: string | number | BigNumber;
+  estimatedGasLimit?: string | number | bigint;
+  estimateGasExtra?: string | number | bigint;
   waitConfirmations?: number;
 }
 
@@ -210,7 +202,7 @@ export interface SimpleTx extends TxOptions {
 
 export interface DeployedContract {
   address: Address;
-  abi: ABI;
+  abi: Abi;
 }
 
 export interface DeployResult extends Deployment {
@@ -305,7 +297,7 @@ export interface DeploymentsExtension {
 
 export interface ContractExport {
   address: string;
-  abi: any[];
+  abi: Abi;
   linkedData?: any;
 }
 
@@ -337,7 +329,7 @@ export type Facet = {
 };
 
 export interface DeploymentSubmission {
-  abi: ABI;
+  abi: Abi;
   address: Address; // used to override receipt.contractAddress (useful for proxies)
   receipt?: Receipt;
   transactionHash?: string;
@@ -370,7 +362,7 @@ export interface DeploymentSubmission {
 
 export interface Deployment {
   address: Address;
-  abi: ABI;
+  abi: Abi;
   receipt?: Receipt;
   transactionHash?: string;
   history?: Deployment[];
