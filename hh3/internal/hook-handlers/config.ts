@@ -5,7 +5,6 @@ import type {
 } from "hardhat/types/config";
 import type { ConfigHooks } from "hardhat/types/hooks";
 
-import path from "path";
 import { normalizePath, normalizePathArray } from "../utils.js";
 
 export default async (): Promise<Partial<ConfigHooks>> => ({
@@ -23,9 +22,9 @@ export async function resolveUserConfig(
   const resolvedConfig = await next(userConfig, resolveConfigurationVariable);
   const paths = resolvedConfig.paths ?? {};
 
-  let deployPaths: string[] = [];
-  if (paths.deploy) {
-    deployPaths = (typeof paths.deploy === 'string' ? [paths.deploy] : paths.deploy)
+  let deployPaths: HardhatConfig['paths']['deploy'] = [];
+  if (userConfig.paths?.deploy) {
+    deployPaths = (typeof userConfig.paths.deploy === 'string' ? [userConfig.paths.deploy] : userConfig.paths.deploy)
       .map((p) => normalizePath(resolvedConfig, p, 'deploy'));
   } else {
     deployPaths = [normalizePath(resolvedConfig, undefined, 'deploy')];
@@ -39,10 +38,16 @@ export async function resolveUserConfig(
     }
   }
   
-  const verifyConfig = resolvedConfig.verify ?? {};
+  const verifyConfig: HardhatConfig['verify'] = {};
+  if (userConfig.verify?.etherscan?.apiKey !== undefined) {
+    verifyConfig.etherscan = {
+      apiKey: resolveConfigurationVariable(userConfig.verify.etherscan.apiKey),
+    };
+  }
+
   // backward compatibility for runtime (js)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  if ((resolvedConfig as any).etherscan) {
+  if ((userConfig as any).etherscan) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     verifyConfig.etherscan = (userConfig as any).etherscan;
   }
@@ -50,8 +55,10 @@ export async function resolveUserConfig(
   return {
     ...resolvedConfig,
     namedAccounts: userConfig.namedAccounts ?? {},
-    external: resolveExternalConfig(resolvedConfig),
+    deterministicDeployment: userConfig.deterministicDeployment,
+    external: resolveExternalConfig(userConfig, resolvedConfig),
     verify: verifyConfig,
+    networks: resolveNetworksConfig(userConfig, resolvedConfig, resolveConfigurationVariable),
     paths: {
       ...paths,
       deployments: normalizePath(
@@ -69,15 +76,56 @@ export async function resolveUserConfig(
   }
 }
 
-function resolveExternalConfig(config: HardhatConfig): HardhatConfig["external"] | undefined {
-  if (config.external === undefined) {
-    return
+function resolveNetworksConfig(
+  userConfig: HardhatUserConfig,
+  config: HardhatConfig,
+  resolveConfigurationVariable: ConfigurationVariableResolver
+): HardhatConfig["networks"] {
+  if (userConfig.networks === undefined) {
+    return {};
+  }
+  
+  const networks: HardhatConfig["networks"] = {};
+
+  for (const [networkName, userNetwork] of Object.entries(userConfig.networks)) {
+    const verifyConfig: HardhatConfig['networks'][string]['verify'] = {};
+      if (userNetwork.verify?.etherscan?.apiKey !== undefined) {
+        verifyConfig.etherscan = {
+          apiKey: resolveConfigurationVariable(userNetwork.verify.etherscan.apiKey),
+          apiUrl: userNetwork.verify.etherscan.apiUrl !== undefined
+            ? resolveConfigurationVariable(userNetwork.verify.etherscan.apiUrl)
+            : undefined,
+        };
+      }
+      
+      networks[networkName] = {
+        ...config.networks[networkName],
+        live: userNetwork.live ?? !/(localhost|hardhat)/.test(networkName),
+        saveDeployments: userNetwork.saveDeployments ?? true,
+        tags: userNetwork.tags ?? [],
+        deploy: userNetwork.deploy !== undefined 
+          ? typeof userNetwork.deploy === 'string' 
+            ? [userNetwork.deploy] 
+            : userNetwork.deploy 
+          : config.paths.deploy,
+        verify: verifyConfig,
+        zksync: userNetwork.zksync,
+        autoImpersonate: userNetwork.autoImpersonate ?? networkName === "hardhat",
+      };
+  }
+
+  return networks;
+}
+
+function resolveExternalConfig(userConfig: HardhatUserConfig, config: HardhatConfig): HardhatConfig["external"] {
+  if (userConfig.external === undefined) {
+    return {}
   }
 
   const result: HardhatConfig["external"] = {};
 
-  if (config.external.contracts) {
-    result.contracts = config.external.contracts.map((userDefinedExternalContracts) => {
+  if (userConfig.external.contracts) {
+    result.contracts = userConfig.external.contracts.map((userDefinedExternalContracts) => {
       const userArtifacts =
             typeof userDefinedExternalContracts.artifacts === 'string'
               ? [userDefinedExternalContracts.artifacts]
@@ -96,12 +144,12 @@ function resolveExternalConfig(config: HardhatConfig): HardhatConfig["external"]
     })
   }
 
-  if (config.external.deployments) {
+  if (userConfig.external.deployments) {
     result.deployments = {};
-    for (const key of Object.keys(config.external.deployments)) {
+    for (const key of Object.keys(userConfig.external.deployments)) {
       result.deployments[key] = normalizePathArray(
         config,
-        config.external.deployments[key]
+        userConfig.external.deployments[key]
       );
     }
   }

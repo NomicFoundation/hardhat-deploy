@@ -29,7 +29,7 @@ declare module 'hardhat/types/config' {
         deploy?: string;
       }[];
     };
-    verify?: {etherscan?: {apiKey?: string}};
+    verify?: {etherscan?: {apiKey?: SensitiveString}};
   }
 
   interface HardhatConfig {
@@ -53,7 +53,7 @@ declare module 'hardhat/types/config' {
         deploy?: string;
       }[];
     };
-    verify: {etherscan?: {apiKey?: string}};
+    verify: {etherscan?: {apiKey?: ResolvedConfigurationVariable}};
   }
 
   interface EdrNetworkUserConfig {
@@ -61,7 +61,7 @@ declare module 'hardhat/types/config' {
     saveDeployments?: boolean;
     tags?: string[];
     deploy?: string | string[];
-    verify?: {etherscan?: {apiKey?: string; apiUrl?: string}};
+    verify?: {etherscan?: {apiKey?: SensitiveString; apiUrl?: SensitiveString}};
     zksync?: boolean;
     autoImpersonate?: boolean;
   }
@@ -71,7 +71,7 @@ declare module 'hardhat/types/config' {
     saveDeployments?: boolean;
     tags?: string[];
     deploy?: string | string[];
-    verify?: {etherscan?: {apiKey?: string; apiUrl?: string}};
+    verify?: {etherscan?: {apiKey?: SensitiveString; apiUrl?: SensitiveString}};
     zksync?: boolean;
     autoImpersonate?: boolean;
   }
@@ -87,7 +87,7 @@ declare module 'hardhat/types/config' {
     saveDeployments: boolean;
     tags: string[];
     deploy?: string[];
-    verify?: {etherscan?: {apiKey?: string; apiUrl?: string}};
+    verify?: {etherscan?: {apiKey?: ResolvedConfigurationVariable; apiUrl?: ResolvedConfigurationVariable}};
     zksync?: boolean;
     autoImpersonate?: boolean;
   }
@@ -97,7 +97,7 @@ declare module 'hardhat/types/config' {
     saveDeployments: boolean;
     tags: string[];
     deploy?: string[];
-    verify?: {etherscan?: {apiKey?: string; apiUrl?: string}};
+    verify?: {etherscan?: {apiKey?: ResolvedConfigurationVariable; apiUrl?: ResolvedConfigurationVariable}};
     zksync?: boolean;
     autoImpersonate?: boolean;
   }

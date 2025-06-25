@@ -1,6 +1,6 @@
 {
   "name": "hardhat-deploy",
-  "version": "1.0.26",
+  "version": "1.0.36",
   "description": "Hardhat Plugin For Replicable Deployments And Tests",
   "repository": "github:wighawag/hardhat-deploy",
   "author": "wighawag",
@@ -58,11 +58,11 @@
     "typescript": "~5.5.0"
   },
   "dependencies": {
-    "@nomicfoundation/hardhat-errors": "^3.0.0-next.14",
-    "@nomicfoundation/hardhat-ethers": "^4.0.0-next.14",
-    "@nomicfoundation/hardhat-utils": "^3.0.0-next.14",
+    "@nomicfoundation/hardhat-errors": "^3.0.0-next.17",
+    "@nomicfoundation/hardhat-ethers": "^4.0.0-next.17",
+    "@nomicfoundation/hardhat-utils": "^3.0.0-next.17",
     "@types/qs": "^6.9.7",
-    "axios": "^0.21.1",
+    "axios": "^1.10.0",
     "chalk": "^4.1.2",
     "chokidar": "^3.5.2",
     "debug": "^4.3.2",
@@ -70,8 +70,8 @@
     "ethers": "^6.13.4",
     "form-data": "^4.0.0",
     "fs-extra": "^10.0.0",
-    "hardhat": "3.0.0-next.14",
-    "match-all": "^1.2.6",
+    "hardhat": "^3.0.0-next.17",
+    "match-all": "^1.2.7",
     "murmur-128": "^0.2.1",
     "qs": "^6.9.4",
     "zksync-ethers": "^6.17.0"

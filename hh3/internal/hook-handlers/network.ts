@@ -17,22 +17,18 @@ export async function newConnection<ChainTypeT extends ChainType | string>(
 ) {
   const connection: NetworkConnection<ChainTypeT> = await next(context);
 
-  // todo: should this be userConfig instead?
   const networkConfig = context.config.networks[connection.networkName];
 
-  connection.live = networkConfig.live ?? /(localhost|hardhat)/.test(connection.networkName)
-    ? false
-    : true;
-
+  connection.live = networkConfig.live ?? !/(localhost|hardhat)/.test(connection.networkName)
   connection.autoImpersonate = networkConfig.autoImpersonate ?? connection.networkName === "hardhat"
-    ? true
-    : false;
 
-  // backward compatibility for runtime (js)
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  connection.verify = networkConfig.verify ?? (networkConfig as any).etherscan
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    ? { etherscan: (networkConfig as any).etherscan }
+  connection.verify = networkConfig.verify?.etherscan 
+    ? {
+        etherscan: {
+          apiKey: await networkConfig.verify.etherscan.apiKey?.get(),
+          apiUrl: await networkConfig.verify.etherscan.apiUrl?.get(),
+        },
+      }
     : undefined;
 
   connection.zksync = networkConfig.zksync

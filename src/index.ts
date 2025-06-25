@@ -48,26 +48,6 @@ export const TASK_SOURCIFY = 'sourcify';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let nodeTaskArgs: Record<string, any> = {};
 
-function isHardhatEVM(hre: HardhatRuntimeEnvironment): boolean {
-  const {network} = hre;
-  return network.name === HARDHAT_NETWORK_NAME;
-}
-
-function normalizePath(
-  config: HardhatConfig,
-  userPath: string | undefined,
-  defaultPath: string
-): string {
-  if (userPath === undefined) {
-    userPath = path.join(config.paths.root, defaultPath);
-  } else {
-    if (!path.isAbsolute(userPath)) {
-      userPath = path.normalize(path.join(config.paths.root, userPath));
-    }
-  }
-  return userPath;
-}
-
 function createNetworkFromConfig(
   env: HardhatRuntimeEnvironment,
   networkName: string,
@@ -554,25 +534,6 @@ subtask(TASK_NODE_SERVER_READY).setAction(async (args, hre, runSuper) => {
 });
 
 task(TASK_ETHERSCAN_VERIFY, 'submit contract source code to etherscan')
-  .addOptionalParam('apiKey', 'etherscan api key', undefined, types.string)
-  .addOptionalParam(
-    'license',
-    'SPDX license (useful if SPDX is not listed in the sources), need to be supported by etherscan: https://etherscan.io/contract-license-types',
-    undefined,
-    types.string
-  )
-  .addOptionalParam(
-    'apiUrl',
-    'specify the url manually',
-    undefined,
-    types.string
-  )
-  .addOptionalParam(
-    'contractName',
-    'specific contract name to verify',
-    undefined,
-    types.string
-  )
   .addFlag(
     'forceLicense',
     'force the use of the license specified by --license option'
